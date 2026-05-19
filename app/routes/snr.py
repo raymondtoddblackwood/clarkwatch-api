@@ -43,16 +43,15 @@ async def snr_daily(days: int = Query(default=30, ge=1, le=180)) -> dict[str, An
     now_utc = datetime.now(timezone.utc)
     since_iso = (now_utc - timedelta(days=days + 1)).isoformat().replace("+00:00", "Z")
 
-    query = (
+    base_query = (
         "select=event_at,event_type"
         f"&event_at=gte.{since_iso}"
-        "&order=event_at.asc"
-        "&limit=50000"
+        "&order=event_at.desc"
     )
     cache_key = f"snr:daily:{days}:{since_iso[:13]}"
 
     try:
-        rows = await sb.select("clark_watch_details", query, cache_key=cache_key)
+        rows = await sb.select_paginated("clark_watch_details", base_query, cache_key=cache_key)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"supabase fetch failed: {e}") from e
 
