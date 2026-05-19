@@ -50,6 +50,13 @@ def create_app() -> FastAPI:
     except ImportError:
         pass
 
+    try:
+        from .routes import agents
+
+        app.include_router(agents.router, prefix="/agents")
+    except ImportError:
+        pass
+
     return app
 
 
