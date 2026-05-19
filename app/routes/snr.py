@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from zoneinfo import ZoneInfo
 
 from ..auth import require_token
-from ..canonical import classify_event
+from ..canonical import SIGNAL_EVENT_TYPES, classify_event
 from ..clients.supabase import get_supabase_client
 
 router = APIRouter()
@@ -122,12 +122,14 @@ async def snr_daily_events(date: str, limit: int = Query(default=10, ge=1, le=50
     end_iso = end_et.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
     sb = get_supabase_client()
+    signal_list = ",".join(sorted(SIGNAL_EVENT_TYPES))
     query = (
         "select=event_at,event_type,surface,summary"
         f"&event_at=gte.{start_iso}"
         f"&event_at=lt.{end_iso}"
+        f"&event_type=in.({signal_list})"
         "&order=event_at.desc"
-        f"&limit={limit * 4}"
+        f"&limit={limit}"
     )
     cache_key = f"snr:daily-events:{date}:{limit}"
     try:
@@ -136,7 +138,6 @@ async def snr_daily_events(date: str, limit: int = Query(default=10, ge=1, le=50
         raise HTTPException(status_code=502, detail=f"supabase fetch failed: {e}") from e
 
     signal_events = [r for r in rows if classify_event(r.get("event_type")) == "signal"]
-    signal_events = signal_events[:limit]
 
     return {
         "date": date,
