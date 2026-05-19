@@ -54,10 +54,15 @@ async def cascade_health(
 
     sb = get_supabase_client()
 
+    # Overlap filter — a summary "covers" the range if its window touches the
+    # requested window at all. Filtering by period_start>=range_start would
+    # silently drop month/quarter summaries that start before the range.
+    range_start_iso = weeks[0].isoformat()
+    range_end_iso = (weeks[-1] + timedelta(days=6)).isoformat()
     summaries_query = (
         "select=period_type,period_start,period_end"
-        f"&period_start=gte.{weeks[0].isoformat()}"
-        f"&period_end=lte.{(weeks[-1] + timedelta(days=6)).isoformat()}"
+        f"&period_end=gte.{range_start_iso}"
+        f"&period_start=lte.{range_end_iso}"
         "&order=period_start.desc"
     )
     try:
