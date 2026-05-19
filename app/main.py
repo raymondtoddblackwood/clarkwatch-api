@@ -71,6 +71,13 @@ def create_app() -> FastAPI:
     except ImportError:
         pass
 
+    try:
+        from .routes import calendar
+
+        app.include_router(calendar.router, prefix="/calendar")
+    except ImportError:
+        pass
+
     return app
 
 
