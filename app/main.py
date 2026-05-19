@@ -43,6 +43,13 @@ def create_app() -> FastAPI:
     except ImportError:
         pass
 
+    try:
+        from .routes import cascade
+
+        app.include_router(cascade.router, prefix="/cascade")
+    except ImportError:
+        pass
+
     return app
 
 
