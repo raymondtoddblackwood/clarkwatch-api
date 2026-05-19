@@ -64,6 +64,13 @@ def create_app() -> FastAPI:
     except ImportError:
         pass
 
+    try:
+        from .routes import meditation
+
+        app.include_router(meditation.router, prefix="/meditation")
+    except ImportError:
+        pass
+
     return app
 
 
