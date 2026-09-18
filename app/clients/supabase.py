@@ -76,6 +76,28 @@ class SupabaseClient:
             self._cache[cache_key] = all_rows
         return all_rows
 
+    async def rpc(self, fn: str, payload: dict[str, Any]) -> Any:
+        """Call a Postgres function over PostgREST.
+
+        Deliberately never cached: the query surface must not serve a stale
+        answer to a question that was just asked.
+        """
+        url = f"{self._base}/rest/v1/rpc/{fn}"
+        resp = await self._client.post(url, headers=self._headers, json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def insert(self, table: str, row: dict[str, Any]) -> None:
+        """Insert one row. Used for cw_query_log."""
+        url = f"{self._base}/rest/v1/{table}"
+        headers = {
+            **self._headers,
+            "Content-Type": "application/json",
+            "Prefer": "return=minimal",
+        }
+        resp = await self._client.post(url, headers=headers, json=row)
+        resp.raise_for_status()
+
 
 _singleton: SupabaseClient | None = None
 

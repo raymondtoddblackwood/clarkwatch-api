@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     supabase_url: str
     supabase_service_role_key: str
 
+    # Optional: /query returns 503 without it, every other endpoint is unaffected.
+    anthropic_api_key: str = ""
+
     cors_allowed_origins: str = "https://clark.dbnr.ai,https://dbnr.info,http://localhost:8000"
 
     @property

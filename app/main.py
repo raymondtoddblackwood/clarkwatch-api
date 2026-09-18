@@ -22,7 +22,7 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=settings.cors_origins_list,
         allow_credentials=False,
-        allow_methods=["GET", "OPTIONS"],
+        allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["X-ClarkWatch-Token", "Content-Type"],
         max_age=600,
     )
@@ -75,6 +75,13 @@ def create_app() -> FastAPI:
         from .routes import calendar
 
         app.include_router(calendar.router, prefix="/calendar")
+    except ImportError:
+        pass
+
+    try:
+        from .routes import query
+
+        app.include_router(query.router, prefix="/query")
     except ImportError:
         pass
 
