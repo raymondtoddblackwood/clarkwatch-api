@@ -429,6 +429,41 @@ async def drill() -> dict[str, Any]:
                 }
             )
 
+    # A day the rollup never wrote must appear as a gap, not simply be absent.
+    # 2026-09-12 is the live example: 209 day summaries exist across a 210-day
+    # span, and without this the missing one just is not in the list - which
+    # reads as though nothing happened rather than as though nothing was
+    # written. Todd's whole reason for wanting this view is to prove whether the
+    # summary jobs are running, so a silent omission would defeat the feature.
+    if "day" in grains:
+        day_paths = {s["path"] for s in summaries if s["grain"] == "day"}
+        real_days = sorted(
+            date.fromisoformat(s["period_start"])
+            for s in summaries
+            if s["grain"] == "day" and s["period_start"]
+        )
+        if real_days:
+            first, last = real_days[0], real_days[-1]
+            cur = first
+            while cur <= last:
+                iso = cur.isoformat()
+                full, last_seg, label = path_for("day", iso)
+                if full not in day_paths:
+                    synthetic.append(
+                        {
+                            "grain": "day",
+                            "path": full,
+                            "path_last": last_seg,
+                            "label": label,
+                            "period_start": iso,
+                            "period_end": iso,
+                            "summary": None,
+                            "detail_count": None,
+                            "synthetic": True,
+                        }
+                    )
+                cur += timedelta(days=1)
+
     summaries.extend(synthetic)
     summaries.sort(key=lambda s: (ladder.index(s["grain"]) if s["grain"] in ladder else 99, s["path"]))
 
