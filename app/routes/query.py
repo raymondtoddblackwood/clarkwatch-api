@@ -24,7 +24,7 @@ from __future__ import annotations
 import logging
 import re
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import anthropic
@@ -310,4 +310,132 @@ async def spend() -> dict[str, Any]:
         "month_is_partial": True,
         "avg_usd": round(month_cost / len(month), 6) if month else None,
         "first_question_at": rows[-1]["asked_at"] if rows else None,
+    }
+
+
+@router.get("/drill", dependencies=[Depends(require_token)])
+async def drill() -> dict[str, Any]:
+    """The traversal index: every rollup that exists, with a path to walk.
+
+    The grain ladder is DERIVED from the period_type values actually present,
+    never hardcoded. period_type has no CHECK constraint - 'season' and 'year'
+    are perfectly valid values that simply have no rows behind them yet. The
+    moment Meditation writes them, they appear here and the page picks them up
+    with no code change.
+    """
+    sb = get_supabase_client()
+    rows = await sb.select_paginated(
+        "clark_watch_summaries",
+        "select=period_type,period_start,period_end,summary,detail_count"
+        "&order=period_start.asc",
+    )
+
+    def _week_anchor(day: date) -> date:
+        """The Monday of the week containing this date.
+
+        A day must nest under the week that actually contains it. Deriving the
+        week segment from the day's OWN date breaks whenever a week straddles a
+        month boundary - 2026-02-01 would be filed under a week "w01" that no
+        summary ever wrote, and would vanish from the real week's drill. The
+        week summaries start on Mondays, so anchoring both the week and its days
+        on the same Monday keeps the path consistent for both.
+
+        A week spanning two months is filed under the month of its Monday, which
+        is the conventional choice and the one the summaries themselves imply.
+        """
+        return day - timedelta(days=day.weekday())
+
+    def path_for(grain: str, start: str) -> tuple[str, str, str]:
+        """(full path, last segment, human label) for one summary."""
+        day = date.fromisoformat(start)
+        y, m = f"{day.year:04d}", f"{day.month:02d}"
+        q = (day.month - 1) // 3 + 1
+
+        if grain == "year":
+            return y, y, y
+        if grain in ("season", "quarter"):
+            return f"{y}/q{q}", f"q{q}", f"{y} Q{q}"
+        if grain == "month":
+            return f"{y}/q{q}/{m}", m, f"{y}-{m}"
+
+        anchor = _week_anchor(day)
+        ay, am = f"{anchor.year:04d}", f"{anchor.month:02d}"
+        aq = (anchor.month - 1) // 3 + 1
+        week_path = f"{ay}/q{aq}/{am}/w{anchor.day:02d}"
+
+        if grain == "week":
+            return week_path, f"w{anchor.day:02d}", f"week of {anchor.isoformat()}"
+        return f"{week_path}/{start}", start, start
+
+    summaries = []
+    grains: set[str] = set()
+    for r in rows:
+        grain = (r.get("period_type") or "").strip()
+        start = str(r.get("period_start") or "")
+        if not grain or len(start) < 10:
+            continue
+        grains.add(grain)
+        full, last, label = path_for(grain, start)
+        summaries.append(
+            {
+                "grain": grain,
+                "path": full,
+                "path_last": last,
+                "label": label,
+                "period_start": start,
+                "period_end": r.get("period_end"),
+                "summary": r.get("summary"),
+                "detail_count": r.get("detail_count"),
+            }
+        )
+
+    # A grain with no row is still a rung on the ladder. Without this, the four
+    # days of the current week are unreachable: their week has not been
+    # summarized yet (weeks are written the following Monday), so there is no
+    # parent to click through. Synthesize the missing rung, carrying no summary,
+    # so the page can show the gap honestly AND still drill past it. A missing
+    # summary is information; an unreachable day is a bug.
+    ladder = [g for g in ("year", "season", "quarter", "month", "week", "day") if g in grains]
+    seg_count = {}
+    for s in summaries:
+        seg_count.setdefault(s["grain"], len(s["path"].split("/")))
+
+    have = {(s["grain"], s["path"]) for s in summaries}
+    synthetic: list[dict[str, Any]] = []
+    for s in summaries:
+        idx = ladder.index(s["grain"]) if s["grain"] in ladder else -1
+        for parent in ladder[:idx]:
+            n = seg_count.get(parent)
+            if not n:
+                continue
+            segs = s["path"].split("/")
+            if len(segs) <= n:
+                continue
+            ppath = "/".join(segs[:n])
+            if (parent, ppath) in have:
+                continue
+            have.add((parent, ppath))
+            synthetic.append(
+                {
+                    "grain": parent,
+                    "path": ppath,
+                    "path_last": segs[n - 1],
+                    "label": segs[n - 1],
+                    "period_start": None,
+                    "period_end": None,
+                    "summary": None,
+                    "detail_count": None,
+                    "synthetic": True,
+                }
+            )
+
+    summaries.extend(synthetic)
+    summaries.sort(key=lambda s: (ladder.index(s["grain"]) if s["grain"] in ladder else 99, s["path"]))
+
+    return {
+        "grains": sorted(grains),
+        "ladder": ladder,
+        "summaries": summaries,
+        "count": len(summaries),
+        "synthetic_count": len(synthetic),
     }
