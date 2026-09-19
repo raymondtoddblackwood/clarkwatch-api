@@ -120,13 +120,25 @@ records — say that plainly instead of hunting through `details` JSON for field
 that were never there.** A question whose answer is not in these two tables
 deserves "that isn't in ClarkWatch", not a creative query.
 
-## Open — needs Todd
+## Answered by Todd, 2026-09-18
 
-These shape good answers and are genuinely his to state, not mine to infer:
+**Noise: call it out separately.** Answer about the real memory, then state
+plainly how much of the slice was machine rows and which types they were. Do not
+silently filter them — he is cleaning this table and needs to see what is in it —
+and do not let them into the main count, where `Heartbeat` wins everything and
+buries the agents that did the work. Both numbers, clearly separated.
 
-1. Which agents does he consider retired versus merely dormant?
-2. Which event types does he consider memory, and which are junk pending the
-   cleanup? The classifier in `canonical.py` covers 35 of 158 types; the rest
-   fall through unlabelled.
-3. What does he want an answer to do when a question spans the noise — count it,
-   exclude it, or call it out separately?
+**Silent agents: report the dates, pass no judgement.** Say when an agent last
+wrote and stop there. Do NOT call a lane retired, finished, dead, paused or
+dormant — that is Todd's call, not the data's. "maverick last wrote 2026-06-04"
+is right; "maverick was retired in June" is not, and neither is "maverick is
+currently paused."
+
+**Unclassified event types: ignore the distinction for now.** 123 of the 158
+types fall through the `canonical.py` classifier as "other", including memory
+still being written today. Until the cleanup, treat every non-machine type as
+memory rather than guessing signal from noise. The classifier is being rebuilt
+from scratch, so a classification invented now would only have to be unpicked.
+
+This section stays. When the cleanup changes an answer, the change is recorded
+here rather than inferred from the data.
