@@ -795,6 +795,32 @@ async def drill() -> dict[str, Any]:
     }
 
 
+# Autonomic classification is DETERMINISTIC and derived from the data, never
+# from a hardcoded list of event_type names. /meditation owns the rule (relay
+# memories-chart-surface-composition, 2026-09-19): a row is autonomic when it
+# records a REPETITION rather than a STATE CHANGE, measured by the
+# distinct-summary ratio of its event_type. High volume with near-zero variety
+# is a pulse; high variety is a record, whatever the type is called.
+#
+# These thresholds select exactly heartbeat_alive (20,099 rows / 60 distinct),
+# trading_docs_synced (19,200 / 226) and intraday_overlay_served (4,316 / 30)
+# = 43,615 rows, which is /meditation's delete-candidate set to the row. They
+# correctly EXCLUDE heartbeat_critical (865 rows, 865 distinct) - the alarm
+# bell during three real outages, two of them load-bearing in Clark history -
+# and leave heartbeat and backup_synced, both still under review, classified
+# as signal. Defaulting the ambiguous case to signal is the safe direction for
+# an instrument that precedes an irreversible delete: it over-reports what
+# would survive rather than under-reporting what would be destroyed.
+AUTONOMIC_MIN_ROWS = 1000
+AUTONOMIC_MAX_DISTINCT_RATIO = 0.05
+
+_AUTONOMIC_CTE = (
+    "auto as (select event_type from clark_watch_details group by 1 "
+    f"having count(*) >= {AUTONOMIC_MIN_ROWS} "
+    f"and count(distinct summary)::numeric / count(*) < {AUTONOMIC_MAX_DISTINCT_RATIO})"
+)
+
+
 @router.get("/census", dependencies=[Depends(require_token)])
 async def census() -> dict[str, Any]:
     """Day x surface event counts - the whole calendar in one pull.
@@ -802,8 +828,13 @@ async def census() -> dict[str, Any]:
     Replicates the Pathforward census drill (science/45) on daily2.dbnr.ai:
     the browser gets one small aggregate and rolls up year / quarter / month /
     week itself, exactly as pcLoad does against pathforward_oc2_day_facts. Only
-    1,269 (day, surface) pairs exist across 210 days and 33 surfaces, so there
+    ~1,274 (day, surface) pairs exist across 211 days and 33 surfaces, so there
     is nothing to paginate and no reason to page the browser through 61k rows.
+
+    Each pair also carries `a`, the autonomic subset of `n`, so the console can
+    segment every bar by surface at every level and fold machine repetition
+    into one band without a second round trip. Adding a column rather than a
+    dimension keeps the payload the same shape and the same size class.
 
     Dates are Eastern, not UTC - the drill is a calendar Todd reads.
     """
@@ -812,18 +843,48 @@ async def census() -> dict[str, Any]:
         "cw_run_readonly",
         {
             "q": (
+                f"with {_AUTONOMIC_CTE} "
                 "select (event_at at time zone 'America/New_York')::date::text as d, "
-                "coalesce(nullif(btrim(surface),''),'(none)') as surface, count(*) as n "
+                "coalesce(nullif(btrim(surface),''),'(none)') as surface, "
+                "count(*) as n, "
+                "count(*) filter (where event_type in (select event_type from auto)) as a "
                 "from clark_watch_details group by 1,2 order by 1,2"
             ),
             "row_cap": 5000,
         },
     )
     rows = rows if isinstance(rows, list) else []
+
+    # The names are returned with the counts so the console can say which types
+    # it folded. A muted band nobody can identify is not an instrument.
+    types = await sb.rpc(
+        "cw_run_readonly",
+        {
+            "q": (
+                "select event_type, count(*) as n, count(distinct summary) as distinct_summaries "
+                "from clark_watch_details group by 1 "
+                f"having count(*) >= {AUTONOMIC_MIN_ROWS} "
+                f"and count(distinct summary)::numeric / count(*) < {AUTONOMIC_MAX_DISTINCT_RATIO} "
+                "order by 2 desc"
+            ),
+            "row_cap": 100,
+        },
+    )
+    types = types if isinstance(types, list) else []
+
+    total = sum(int(r["n"]) for r in rows)
+    autonomic = sum(int(r.get("a") or 0) for r in rows)
     return {
         "days": rows,
         "pairs": len(rows),
-        "total": sum(int(r["n"]) for r in rows),
+        "total": total,
+        "autonomic_total": autonomic,
+        "signal_total": total - autonomic,
+        "autonomic_types": types,
+        "autonomic_rule": {
+            "min_rows": AUTONOMIC_MIN_ROWS,
+            "max_distinct_ratio": AUTONOMIC_MAX_DISTINCT_RATIO,
+        },
     }
 
 
