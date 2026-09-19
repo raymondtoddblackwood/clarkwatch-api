@@ -83,7 +83,14 @@ class SupabaseClient:
         answer to a question that was just asked.
         """
         url = f"{self._base}/rest/v1/rpc/{fn}"
-        resp = await self._client.post(url, headers=self._headers, json=payload)
+        # The shared client is tuned for small widget reads (15s). A census
+        # aggregate or a model-written analytic query legitimately runs longer,
+        # and the in-database statement_timeout is the real ceiling anyway, so
+        # give the HTTP call enough room to hear the answer or the error.
+        resp = await self._client.post(
+            url, headers=self._headers, json=payload,
+            timeout=httpx.Timeout(45.0, connect=5.0),
+        )
         resp.raise_for_status()
         return resp.json()
 

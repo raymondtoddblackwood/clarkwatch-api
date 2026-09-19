@@ -28,6 +28,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import anthropic
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -125,6 +126,19 @@ def _reject_reason(sql: str) -> str | None:
     if hit:
         return f"Generated statement contained a write keyword: {hit.group(1).upper()}."
     return None
+
+
+def _describe(e: BaseException) -> str:
+    """Never return an empty string.
+
+    httpx.ReadTimeout and friends stringify to '', so `str(e)` wrote a blank
+    error column and the first real failure in production was logged with
+    nothing in it - the row said something broke and refused to say what.
+    Always lead with the type.
+    """
+    msg = (str(e) or "").strip()
+    name = type(e).__name__
+    return (f"{name}: {msg}" if msg else name)[:500]
 
 
 async def _pricing(model: str) -> dict[str, float]:
@@ -266,8 +280,21 @@ async def ask(req: QueryRequest) -> dict[str, Any]:
         status, error = "error", f"Anthropic {e.status_code}: {e.message}"
         await _log()
         raise HTTPException(status_code=502, detail=error) from e
+    except (httpx.TimeoutException, httpx.HTTPStatusError) as e:
+        # A timeout is the one failure Todd will actually hit, and it deserves a
+        # sentence he can act on rather than a naked 500.
+        status, error = "error", _describe(e)
+        await _log()
+        if isinstance(e, httpx.TimeoutException):
+            raise HTTPException(
+                status_code=504,
+                detail="That query took too long against the database and was cut off. "
+                       "It usually means the question made the model write something that "
+                       "scans the whole table. Try narrowing it to a date range or a surface.",
+            ) from e
+        raise HTTPException(status_code=502, detail=error) from e
     except Exception as e:
-        status, error = "error", str(e)[:500]
+        status, error = "error", _describe(e)
         await _log()
         raise HTTPException(status_code=500, detail=error) from e
 
@@ -474,3 +501,64 @@ async def drill() -> dict[str, Any]:
         "count": len(summaries),
         "synthetic_count": len(synthetic),
     }
+
+
+@router.get("/census", dependencies=[Depends(require_token)])
+async def census() -> dict[str, Any]:
+    """Day x surface event counts - the whole calendar in one pull.
+
+    Replicates the Pathforward census drill (science/45) on daily2.dbnr.ai:
+    the browser gets one small aggregate and rolls up year / quarter / month /
+    week itself, exactly as pcLoad does against pathforward_oc2_day_facts. Only
+    1,269 (day, surface) pairs exist across 210 days and 33 surfaces, so there
+    is nothing to paginate and no reason to page the browser through 61k rows.
+
+    Dates are Eastern, not UTC - the drill is a calendar Todd reads.
+    """
+    sb = get_supabase_client()
+    rows = await sb.rpc(
+        "cw_run_readonly",
+        {
+            "q": (
+                "select (event_at at time zone 'America/New_York')::date::text as d, "
+                "coalesce(nullif(btrim(surface),''),'(none)') as surface, count(*) as n "
+                "from clark_watch_details group by 1,2 order by 1,2"
+            ),
+            "row_cap": 5000,
+        },
+    )
+    rows = rows if isinstance(rows, list) else []
+    return {
+        "days": rows,
+        "pairs": len(rows),
+        "total": sum(int(r["n"]) for r in rows),
+    }
+
+
+@router.get("/events", dependencies=[Depends(require_token)])
+async def events(day: str, surface: str, limit: int = 500) -> dict[str, Any]:
+    """The events inside one day for one surface - the bottom of the drill."""
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", day or ""):
+        raise HTTPException(status_code=400, detail="day must be YYYY-MM-DD")
+
+    sb = get_supabase_client()
+    safe_surface = (surface or "").replace("'", "''")
+    surface_clause = (
+        "coalesce(nullif(btrim(surface),''),'(none)') = '" + safe_surface + "'"
+    )
+    rows = await sb.rpc(
+        "cw_run_readonly",
+        {
+            "q": (
+                "select id::text, event_at, event_type, surface, summary, details "
+                "from clark_watch_details "
+                f"where (event_at at time zone 'America/New_York')::date = '{day}' "
+                f"and {surface_clause} "
+                "order by event_at "
+                f"limit {max(1, min(int(limit), 1000))}"
+            ),
+            "row_cap": 1000,
+        },
+    )
+    rows = rows if isinstance(rows, list) else []
+    return {"day": day, "surface": surface, "events": rows, "count": len(rows)}
