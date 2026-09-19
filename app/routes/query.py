@@ -131,15 +131,23 @@ class QueryRequest(BaseModel):
     session_id: str | None = Field(default=None, max_length=120)
 
 
-def _extract_sql(raw: str) -> str:
-    """Pull the statement out even if the model wrapped it in prose or fences."""
-    text = raw.strip()
+def _extract_sql(raw: str) -> str | None:
+    """Pull the statement out even if the model wrapped it in prose or fences.
+
+    Returns None when there is no statement at all. That is a legitimate
+    outcome, not an error: the worldview tells the model this memory holds no
+    trades, no P&L and no prices, so when a question asks for one the right
+    move is to say so rather than invent a query. Raising here turned the
+    model doing the RIGHT thing into a 500 - which is exactly what Todd hit
+    asking how many winning days Maverick had.
+    """
+    text = (raw or "").strip()
     fence = re.search(r"```(?:sql)?\s*(.+?)```", text, re.S | re.I)
     if fence:
         text = fence.group(1).strip()
     start = re.search(r"\b(select|with)\b", text, re.I)
     if not start:
-        raise ValueError("model did not return a SELECT")
+        return None
     return text[start.start():].strip().rstrip(";").strip()
 
 
@@ -323,6 +331,29 @@ async def ask(req: QueryRequest) -> dict[str, Any]:
 
         raw = "".join(b.text for b in gen.content if b.type == "text")
         sql = _extract_sql(raw)
+
+        if sql is None:
+            # No query to run - the model answered in prose because the thing
+            # asked for is not in this memory. Hand that straight back; it is
+            # a real answer and it costs one call instead of two.
+            status = "no_query"
+            answer = raw.strip() or ("That isn't something ClarkWatch holds. "
+                                     "It stores what the agents did and learned - "
+                                     "not trades, prices or P&L.")
+            await _log()
+            await _remember(req.session_id, req.question, answer)
+            return {
+                "status": "no_query",
+                "question": req.question,
+                "sql": None,
+                "rows": [],
+                "row_count": 0,
+                "answer": answer,
+                "cost_usd": round(_cost(totals, price), 6),
+                "usage": totals,
+                "model": MODEL,
+                "duration_ms": int((time.monotonic() - started) * 1000),
+            }
 
         reason = _reject_reason(sql)
         if reason:
