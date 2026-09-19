@@ -19,6 +19,12 @@ class Settings(BaseSettings):
 
     # Optional: /query returns 503 without it, every other endpoint is unaffected.
     anthropic_api_key: str = ""
+    gemini_api_key: str = ""
+
+    # Swappable without a deploy. Any model with a row in cw_model_pricing
+    # stays correctly metered; an unpriced model meters at zero, which would
+    # be worse than wrong, so add the price row first.
+    query_model: str = "claude-opus-5"
 
     cors_allowed_origins: str = "https://clark.dbnr.ai,https://dbnr.info,http://localhost:8000"
 
