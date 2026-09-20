@@ -356,12 +356,12 @@ writing here 2026-09-15 at 8:05 PM ET when liveness moved to
 ## Continuity
 
 Canon (`clark-memory-architecture.md`, Todd 2026-09-15) sets the grains:
-**day, week, month, season, year.** Not quarter — *"humans do that by season
-not quarter."*
+**day, week, month, quarter, year.** *(Corrected 2026-09-20 — an earlier version of this section
+named a different grain set.)*
 
 What actually exists: `day` 209 · `week` 30 · `month` 7 · `quarter` 2. The
 `quarter` rows are **drift from canon**, not a legitimate grain, and so is the
-QUARTER level in the console drill. `season` and `year` have never been written.
+QUARTER level in the console drill. `year` rows have never been written.
 I report what the data holds and name the drift rather than dressing it up as
 the design.
 
