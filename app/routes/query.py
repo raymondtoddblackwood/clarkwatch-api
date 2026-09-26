@@ -645,7 +645,7 @@ async def drill() -> dict[str, Any]:
     sb = get_supabase_client()
     rows = await sb.select_paginated(
         "clark_watch_summaries",
-        "select=period_type,period_start,period_end,summary,detail_count"
+        "select=period_type,period_start,period_end,summary,detail_count,surface"
         "&order=period_start.asc",
     )
 
@@ -705,6 +705,10 @@ async def drill() -> dict[str, Any]:
                 "period_end": r.get("period_end"),
                 "summary": r.get("summary"),
                 "detail_count": r.get("detail_count"),
+                # canon §3: surface = whose reflection; 'system' = Meditation's
+                # synthesis; NULL = a machine digest from before reflections.
+                "surface": r.get("surface"),
+                "legacy": r.get("surface") is None,
             }
         )
 
@@ -793,6 +797,82 @@ async def drill() -> dict[str, Any]:
         "count": len(summaries),
         "synthetic_count": len(synthetic),
     }
+
+
+# ---- Reflections: the top of the hierarchy, read first (spec-clarkwatch-htm-retrieval) ----
+# Todd, 9/26: retrieve from the highest level; go deeper only to remember exactly.
+# The page leads every drill level with the reflection for the period that is open,
+# so it needs (a) a small index of which periods have which reflections - to mark
+# columns and count what is still waiting - and (b) the full text for ONE period.
+# /drill ships every summary's text in one pull; once every agent reflects daily
+# that is thousands of rows of prose, so these two routes split it.
+
+GRAINS = ("day", "week", "month", "quarter", "year")
+
+
+def grain_start(grain: str, d: date) -> date:
+    """The period_start a reflection at this grain carries for a date (Eastern calendar)."""
+    if grain == "day":
+        return d
+    if grain == "week":
+        return d - timedelta(days=d.weekday())
+    if grain == "month":
+        return d.replace(day=1)
+    if grain == "quarter":
+        return date(d.year, (d.month - 1) // 3 * 3 + 1, 1)
+    return date(d.year, 1, 1)
+
+
+def _reflection_order(r: dict[str, Any]) -> tuple[int, str]:
+    s = r.get("surface")
+    if s == "system":
+        return (0, "")
+    if s is None:
+        return (2, "")
+    return (1, s)
+
+
+@router.get("/reflections/index", dependencies=[Depends(require_token)])
+async def reflections_index() -> dict[str, Any]:
+    """Which periods have which reflections - no text. Small enough to pull whole."""
+    sb = get_supabase_client()
+    rows = await sb.select_paginated(
+        "clark_watch_summaries",
+        "select=period_type,period_start,surface,detail_count&order=period_start.asc",
+    )
+    return {
+        "reflections": [
+            {"g": r["period_type"], "s": str(r["period_start"])[:10], "a": r.get("surface"),
+             "n": r.get("detail_count")}
+            for r in rows if r.get("period_type") in GRAINS
+        ],
+        "count": len(rows),
+    }
+
+
+@router.get("/reflections", dependencies=[Depends(require_token)])
+async def reflections(grain: str, start: str) -> dict[str, Any]:
+    """Every reflection for one period, in reading order: Meditation's whole-system
+    synthesis first, then each agent in its own voice, then any legacy digest."""
+    if grain not in GRAINS:
+        raise HTTPException(status_code=400, detail=f"grain must be one of {', '.join(GRAINS)}")
+    try:
+        d = date.fromisoformat(start)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="start must be YYYY-MM-DD")
+    if grain_start(grain, d) != d:
+        raise HTTPException(status_code=400, detail=f"{start} is not the start of a {grain}")
+
+    sb = get_supabase_client()
+    rows = await sb.select(
+        "clark_watch_summaries",
+        "select=id,period_type,period_start,period_end,surface,summary,detail_count,created_at"
+        f"&period_type=eq.{grain}&period_start=eq.{d.isoformat()}",
+    )
+    rows = sorted(rows or [], key=_reflection_order)
+    for r in rows:
+        r["legacy"] = r.get("surface") is None
+    return {"grain": grain, "start": d.isoformat(), "reflections": rows}
 
 
 # Autonomic classification is DETERMINISTIC and derived from the data, never
