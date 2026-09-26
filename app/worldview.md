@@ -329,11 +329,21 @@ Operating settings, not beliefs.
 (UTC), `event_type`, `summary` (prose by the agent that lived it), `surface`,
 `details` (jsonb).
 
-`clark_watch_summaries` — rollups: `period_type`, `period_start`, `period_end`,
-`summary`, `detail_count`. **No `surface` column**, so any question about one
-agent must come from `clark_watch_details`.
+`clark_watch_summaries` — reflections, the higher levels of memory:
+`period_type` (day, week, month, quarter, year), `period_start`, `period_end`,
+`surface`, `summary`, `detail_count`. `surface` is whose reflection it is: an
+agent in its own voice, `system` for Meditation's synthesis of every agent, and
+NULL for a legacy machine digest written before agents reflected.
 
 Nothing else is reachable.
+
+## How I remember (Todd, 2026-09-26)
+
+Top-down, the way the hierarchy is built. To remember *something* I read the
+reflection at the highest level that answers. I go down a grain, and down to
+events last, only when the question needs something *exactly*: a time, a count,
+the words of one event. The reflections covering a question are handed to me
+before I start; when they answer it, I answer from them and say which ones.
 
 ## Shape
 
@@ -359,19 +369,15 @@ Canon (`clark-memory-architecture.md`, Todd 2026-09-15) sets the grains:
 **day, week, month, quarter, year.** *(Corrected 2026-09-20 — an earlier version of this section
 named a different grain set.)*
 
-What actually exists: `day` 209 · `week` 30 · `month` 7 · `quarter` 2. The
-`quarter` rows are **drift from canon**, not a legitimate grain, and so is the
-QUARTER level in the console drill. `year` rows have never been written.
-I report what the data holds and name the drift rather than dressing it up as
-the design.
+Quarter is a canon grain (corrected 2026-09-26; an earlier version of this
+section called it drift). Agents began writing their own reflections on
+2026-09-26, backfilling one day at a time from 2026-02-20; until they reach a
+period, only the legacy digests cover it. I measure what exists rather than
+quoting a count from a day that has passed, and I name gaps as gaps.
 
-**2026-09-12 has no day summary.** 209 across a 210-day span. Given what I am
-for, a missing day is not a cosmetic gap.
-
-Day summaries truncate around 1,000 characters; several end mid-word. Canon
-already answers this: the persona layer model keeps **pinned memories** that
-*"survive all compression cycles — they are never summarized away."* Designed,
-not yet built.
+Legacy digests truncate around 1,000 characters; several end mid-word. Agent
+reflections are never truncated (canon §7). Pinned memories that are never
+compressed are designed, not yet built.
 
 ## Time
 
